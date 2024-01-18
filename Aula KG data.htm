@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"> <!-- Tilføjer charset for korrekt tegnkodning -->
+  <title>CSV Data Analysis</title>
+  <style>
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+    th, td {
+      border: 1px solid black;
+      text-align: center;
+      padding: 5px;
+    }
+
+    /* Grønne nuancer for tilstedeværelse */
+    .cell-color-0 { background-color: #e8f5e9; }
+    .cell-color-1 { background-color: #d4f1dc; }
+    .cell-color-2 { background-color: #c0edcf; }
+    .cell-color-3 { background-color: #aceac2; }
+    .cell-color-4 { background-color: #98e6b5; }
+    .cell-color-5 { background-color: #84e2a8; }
+    .cell-color-6 { background-color: #70dea0; }
+    .cell-color-7 { background-color: #5cda93; }
+    .cell-color-8 { background-color: #48d687; }
+    .cell-color-9 { background-color: #34d37a; }
+
+    /* Gule nuancer for sygdom */
+    .cell-syg-0 { background-color: #fffde7; }
+    .cell-syg-1 { background-color: #fffbd4; }
+    .cell-syg-2 { background-color: #fffac1; }
+    .cell-syg-3 { background-color: #fff9ae; }
+    .cell-syg-4 { background-color: #fff89b; }
+    .cell-syg-5 { background-color: #fff788; }
+    .cell-syg-6 { background-color: #fff675; }
+    .cell-syg-7 { background-color: #fff562; }
+    .cell-syg-8 { background-color: #fff44f; }
+    .cell-syg-9 { background-color: #ff6f00; }
+
+    /* Lyseblå for 'Fri' */
+    .cell-fri { background-color: #bbdefb; }
+
+    /* Lysegrå for weekenddage */
+    .cell-weekend { background-color: #f0f0f0; }
+  </style>
+</head>
+<body>
+  <input type="file" id="csvFile" accept=".csv">
+  <div id="tableContainer"></div>
+
+  <script>
+    document.getElementById('csvFile').addEventListener('change', handleFile);
+
+    function handleFile(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const content = e.target.result;
+        processData(content);
+      };
+      reader.readAsText(file);
+    }
+
+    function isWeekend(dateString) {
+      const [day, month, year] = dateString.split('-').map(Number);
+      const date = new Date(year, month - 1, day);
+      return date.getDay() === 0 || date.getDay() === 6;
+    }
+
+    function getSegmentIndex(hour, minute) {
+      return hour * 4 + Math.floor(minute / 15);
+    }
+
+    function getDanishWeekday(dateString) {
+      const [day, month, year] = dateString.split('-').map(Number);
+      const date = new Date(year, month - 1, day);
+      const weekdays = ['Søndag', 'Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag'];
+      return weekdays[date.getDay()];
+    }
+
+    function processData(csvContent) {
+      const rows = csvContent.trim().split('\n');
+      const data = {};
+
+      for (let i = 1; i < rows.length; i++) {
+        const columns = rows[i].split(';');
+        const date = columns[0];
+
+        if (!data[date]) {
+          data[date] = { segments: Array(48).fill(0), sygCount: 0, friCount: 0, maxCount: 0, isWeekend: isWeekend(date) };
+        }
+
+        if (data[date].isWeekend) continue; // Springer over behandlingen af data for weekenddage
+
+        const syg = columns[9].toLowerCase() === 'ja';
+        const fri = columns[10].toLowerCase() === 'ja';
+
+        if (syg) data[date].sygCount += 1;
+        if (fri) data[date].friCount += 1;
+
+        const komTime = columns[7];
+        const gikTime = columns[8];
+
+        if (komTime && gikTime) {
+          const komHour = parseInt(komTime.split(':')[0]);
+          const komMinutes = parseInt(komTime.split(':')[1]);
+          const gikHour = parseInt(gikTime.split(':')[0]);
+          const gikMinutes = parseInt(gikTime.split(':')[1]);
+
+          const startSegment = getSegmentIndex(komHour, komMinutes);
+          const endSegment = getSegmentIndex(gikHour, gikMinutes);
+
+          for (let segment = startSegment; segment <= endSegment; segment++) {
+            if (segment >= 24 && segment < 72) {
+              data[date].segments[segment - 24] += 1;
+            }
+          }
+        }
+
+        let dagensTotal = Math.max(...data[date].segments);
+        data[date].maxCount = Math.max(dagensTotal, data[date].sygCount, data[date].friCount);
+      }
+
+      createTable(data);
+    }
+
+    function getColorClass(count, maxCount, type) {
+      if (type === 'cell-fri') {
+        return 'cell-fri';
+      }
+
+      if (count === 0) {
+        return `${type}-0`;
+      }
+
+      const index = Math.min(Math.floor(count / maxCount * 9), 9);
+      return `${type}-${index}`;
+    }
+
+    function createTable(data) {
+      const tableContainer = document.getElementById('tableContainer');
+      const table = document.createElement('table');
+      const thead = table.createTHead();
+      const tbody = table.createTBody();
+
+      const headerRow = thead.insertRow();
+      headerRow.insertCell().textContent = 'Dato / Ugedag';
+      for (let hour = 6; hour < 18; hour++) {
+        for (let minute = 0; minute < 60; minute += 15) {
+          const cell = headerRow.insertCell();
+          cell.textContent = `${hour}:${minute.toString().padStart(2, '0')}`;
+        }
+      }
+      headerRow.insertCell().textContent = 'Syg';
+      headerRow.insertCell().textContent = 'Fri';
+
+      for (const date in data) {
+        const dataRow = tbody.insertRow();
+        const weekday = getDanishWeekday(date);
+        dataRow.insertCell().textContent = `${date} (${weekday})`;
+
+        const isWeekend = data[date].isWeekend;
+        for (let i = 0; i < 48; i++) {
+          const cell = dataRow.insertCell();
+          if (!isWeekend) {
+            cell.textContent = data[date].segments[i] || 0;
+            cell.className = getColorClass(data[date].segments[i], data[date].maxCount, 'cell-color');
+          } else {
+            cell.className = 'cell-weekend'; // Tildeler weekend-klasse, men ingen tekst
+          }
+        }
+
+        const sygCell = dataRow.insertCell();
+        sygCell.textContent = isWeekend ? '' : (data[date].sygCount || 0);
+        sygCell.className = isWeekend ? 'cell-weekend' : getColorClass(data[date].sygCount, data[date].maxCount, 'cell-syg');
+
+        const friCell = dataRow.insertCell();
+        friCell.textContent = isWeekend ? '' : (data[date].friCount || 0);
+        friCell.className = isWeekend ? 'cell-weekend' : 'cell-fri';
+      }
+
+      tableContainer.innerHTML = '';
+      tableContainer.appendChild(table);
+    }
+  </script>
+</body>
+</html>
